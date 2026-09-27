@@ -1,0 +1,27 @@
+#!/bin/bash
+#PBS -N er-cpu
+#PBS -q workq
+#PBS -l select=1:ncpus=16:mem=48gb
+#PBS -l walltime=24:00:00
+#PBS -j oe
+
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+export OMP_NUM_THREADS=16 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export PYTHONUNBUFFERED=1
+
+: "${DATA_ZIP:?Set DATA_ZIP to the original challenge ZIP}"
+: "${SAMPLE_ZIP:?Set SAMPLE_ZIP to a representative training sample ZIP}"
+: "${RUN_DIR:?Set RUN_DIR to an absolute output directory}"
+: "${VENV_DIR:?Set VENV_DIR to the Python environment directory}"
+source "$VENV_DIR/bin/activate"
+python -c 'import sqlite3, lightgbm, pyarrow, rapidfuzz; c=sqlite3.connect(":memory:"); c.execute("CREATE VIRTUAL TABLE t USING fts5(x)"); print("Dependencies and SQLite FTS5 OK")'
+mkdir -p "$RUN_DIR"
+if [ ! -f "$RUN_DIR/original_cleaned/cleaning_report.json" ]; then
+  python clean_er_data.py --input "$DATA_ZIP" --output "$RUN_DIR/original_cleaned"
+fi
+python run.py baseline --input "$SAMPLE_ZIP" --test-cleaned "$RUN_DIR/original_cleaned" \
+  --work "$RUN_DIR/experiment" --threads 16 --config config.json \
+  --training-config lgbm_config.json
+echo "Results: $RUN_DIR/experiment/test/matching_results.tsv"
+echo "Candidates: $RUN_DIR/experiment/test/candidate_pairs.tsv"
